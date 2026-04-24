@@ -59,6 +59,7 @@ description: "Browser JS agent patterns for web search and information retrieval
 
 ### Code / Packages / Security
 - **GitHub**: `https://api.github.com/search/repositories?q=TERM&sort=stars&per_page=5`.
+- **GitHub raw content**: `https://raw.githubusercontent.com/USER/REPO/BRANCH/PATH` — CORS-friendly, fetches raw file content directly.
 - **PyPI**: `https://pypi.org/pypi/PACKAGE/json`.
 - **npm**: `https://registry.npmjs.org/-/v1/search?text=TERM`.
 - **Dev.to**: `https://dev.to/api/articles?tag=javascript&top=1` or `?q=TERM`.
@@ -143,3 +144,4 @@ async function firstWorking(candidates) {
 - Prefer structured JSON fields, RSS elements, `data-*`, or schema.org JSON-LD over brittle CSS classes or JS blobs.
 - JSONP executes remote JavaScript; skip unless the endpoint is trusted and explicitly supports it. No useful tested JSONP endpoint was found.
 - Use browser-native context when useful: timezone/language/local date from `Intl`, `navigator.languages`, and `new Date()`.
+- When querying time-sensitive information (e.g., current events, weather, stock prices), always obtain the current date/time first via `new Date()`.
