@@ -1,6 +1,6 @@
 ---
 name: cors-internet
-description: Browser JS agent patterns for web search and information retrieval under CORS: direct JSON APIs first, Jina/Codetabs proxy scraping, RSS, timeouts, fallbacks, and tested source notes.
+description: "Browser JS agent patterns for web search and information retrieval under CORS: direct JSON APIs first, Jina/Codetabs proxy scraping, RSS, timeouts, fallbacks, and tested source notes."
 ---
 
 # Browser JS Environment — Web Search & Info Retrieval Patterns
