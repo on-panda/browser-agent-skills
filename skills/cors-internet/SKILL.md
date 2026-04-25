@@ -21,6 +21,7 @@ description: "Browser JS agent patterns for web search and information retrieval
 ## CORS Proxy Tools
 - **`r.jina.ai`** 🏆: `fetch('https://r.jina.ai/' + targetUrl, {headers:{Accept:'text/markdown'}})` → clean markdown. Free tier/rate-limited; do not loop.
 - **Codetabs**: `https://api.codetabs.com/v1/proxy?quest=ENCODED_URL` → raw HTML. Use when Jina cannot render or when raw DOM matters; GET-only, ~5 MB limit.
+- **`api.rss2json.com`** 🏆: `https://api.rss2json.com/v1/api.json?rss_url=ENCODED_RSS_URL` → JSON. CORS-free, no API key. Converts any RSS/Atom feed to clean JSON; pair with news RSS feeds for structured news retrieval.
 - **Own proxy**: use allowlist, timeout, max byte limit, cache, and no credential forwarding by default.
 - Avoid public proxy dead ends already tested: AllOrigins (down/timeout), `corsproxy.io` (localhost-only), ThingProxy (unreachable), cloudflare-cors (manual activation), Wayback Machine (CORS-blocked).
 
@@ -32,7 +33,7 @@ description: "Browser JS agent patterns for web search and information retrieval
 - **GDELT DOC 2.0**: `https://api.gdeltproject.org/api/v2/doc/doc?query=TERM&mode=ArtList&format=json`; CORS-free but slow, use 12–15s timeout. Use DOC, not GEO.
 - **Federal Register**: `https://www.federalregister.gov/api/v1/documents.json?conditions[term]=TERM`; fast US regulations/executive documents.
 - **Library of Congress**: `https://www.loc.gov/search/?fo=json&query=TERM`; CORS-free but slow, use ~12s timeout.
-- **Authoritative headlines**: BBC/Guardian/NPR/TechCrunch/RSS feeds via Jina; direct RSS usually fails CORS.
+- **Authoritative headlines**: BBC/Guardian/NPR/TechCrunch/AlJazeera feeds via Jina, RSS via rss2json.
 
 ### Weather / Air / Time
 - **Open-Meteo** 🏆: forecast/current weather JSON worldwide.
@@ -96,7 +97,9 @@ description: "Browser JS agent patterns for web search and information retrieval
 ## Deep Read — Any URL to Markdown/HTML
 - **Jina Reader**: use for articles, docs, blogs, GitHub Trending, arXiv Atom, and RSS feeds. Works well on BBC, Guardian, NPR (`text.npr.org`), CNBC, most docs/blogs.
 - **RSS via Jina**: `feeds.bbci.co.uk/news/world/rss.xml`, `feeds.npr.org/1001/rss.xml`, `theguardian.com/world/rss`, `techcrunch.com/feed/`, `sciencedaily.com/rss/top/science.xml`, CNBC RSS. Often cleaner than HTML pages.
+- **RSS via rss2json**: `api.rss2json.com` converts RSS→JSON CORS-free; Works with BBC, Guardian, Al Jazeera, NPR, TechCrunch feeds.
 - **Known failures**: CNN/AP/Reuters often return empty/451; Xinhua heavy JS; Google News 451.
+- **Additional failures tested**: Bing Search API (requires key), `bing.com/search` (CORS `Failed to fetch`), Reuters direct (401).
 - **Codetabs + DOMParser**: use raw HTML when stable DOM/data attributes matter.
   ```js
   const html = await res.text();
@@ -131,7 +134,7 @@ async function firstWorking(candidates) {
 ```
 
 ## Multi-Source Strategy
-- **News**: Reddit/HN for live signals ⊕ GDELT DOC for global search ⊕ BBC/Guardian/NPR RSS via Jina for authority.
+- **News**: Reddit/HN for live signals ⊕ GDELT DOC for global search ⊕ BBC/Guardian/NPR RSS via Jina/rss2json for authority.
 - **Weather**: Open-Meteo ⊕ wttr.in ⊕ weather.gov for US detail.
 - **Stocks**: Google Finance via Codetabs ⊕ Twelve Data price-only.
 - **Crypto/FX**: CoinGecko ⊕ Open ER API.
@@ -145,3 +148,4 @@ async function firstWorking(candidates) {
 - JSONP executes remote JavaScript; skip unless the endpoint is trusted and explicitly supports it. No useful tested JSONP endpoint was found.
 - Use browser-native context when useful: timezone/language/local date from `Intl`, `navigator.languages`, and `new Date()`.
 - When querying time-sensitive information (e.g., current events, weather, stock prices), always obtain the current date/time first via `new Date()`.
+
