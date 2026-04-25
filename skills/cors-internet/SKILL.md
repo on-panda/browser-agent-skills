@@ -94,6 +94,25 @@ description: "Browser JS agent patterns for web search and information retrieval
 - **Sunrise-Sunset**: `https://api.sunrise-sunset.org/json?lat=LAT&lng=LON&formatted=0`.
 - **TVMaze**: `https://api.tvmaze.com/search/shows?q=TERM`.
 
+### Public-APIs
+The public-apis project provides a directory of various free public APIs, covering multiple domains and categories, including: 
+> animals, anime, anti-malware, art & design, books, calendar, cloud storage & file sharing, cryptocurrency, currency exchange, development, dictionaries, email, entertainment, finance, food & drink, games & comics, geocoding, government, health, jobs, machine learning, music, news, open data, open source projects, personality, phone, science & math, security, social, sports & fitness, test data, transportation, url shorteners, video, weather
+
+The following code can be used to obtain a list of APIs that do not require authentication and support CORS:
+```js
+await fetch('https://raw.githubusercontent.com/public-apis/public-apis/refs/heads/master/README.md')
+  .then(res => res.text())
+  .then(text => text.split('\n').filter(line => 
+    line.trim() === '' ||
+    line.startsWith('<br') ||
+    line.startsWith('### ') ||
+    line.startsWith('API |') ||
+    line.startsWith('|:---') ||
+    line.includes('| No | Yes | Yes |')
+  ).forEach(line => console.log(line)));
+```
+If you don't have a good information acquisition plan tailored to the current task, you can draw inspiration from this list.
+
 ## Deep Read — Any URL to Markdown/HTML
 - **Jina Reader**: use for articles, docs, blogs, GitHub Trending, arXiv Atom, and RSS feeds. Works well on BBC, Guardian, NPR (`text.npr.org`), CNBC, most docs/blogs.
 - **RSS via Jina**: `feeds.bbci.co.uk/news/world/rss.xml`, `feeds.npr.org/1001/rss.xml`, `theguardian.com/world/rss`, `techcrunch.com/feed/`, `sciencedaily.com/rss/top/science.xml`, CNBC RSS. Often cleaner than HTML pages.
