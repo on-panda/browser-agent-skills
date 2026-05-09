@@ -6,7 +6,9 @@
 - `browser-screenshot`: Browser screenshot patterns, used when taking screenshots or streaming. ([skillUrl](https://raw.githubusercontent.com/on-panda/browser-agent-skills/main/skills/browser-screenshot/SKILL.md))
 
 ### TBD skills
-- [ ] file-system-access
+- [x] interactive-webpage
+- [ ] access-user-data
+- [ ] browser-storage
 - [ ] on-panda-docs
-- [ ] interact-artifacts
+- [ ] memory-in-browser
 - [ ] multimedia-io
