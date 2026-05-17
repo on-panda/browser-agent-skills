@@ -73,7 +73,7 @@ description: "Browser JS agent patterns for web search and information retrieval
 - **Crossref**: `https://api.crossref.org/works?query=TERM`; DOI/bibliographic metadata.
 - **Europe PMC**: `https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=TERM&format=json`; biomedical/life science.
 - **NCBI E-utilities**: use `esearch` then `esummary`/`efetch`; CORS-free in tests.
-- **arXiv**: direct API is CORS-blocked; use Jina on `https://export.arxiv.org/api/query?...`.
+- **arXiv**: For example `ID=2401.00036`, direct `https://arxiv.org/abs/2401.00036` and `https://arxiv.org/pdf/2401.00036.pdf` failed, while suffixless `https://arxiv.org/pdf/2401.00036` succeeded directly.
 - **Semantic Scholar**: direct CORS-blocked; Jina often hits 429, avoid unless necessary.
 
 ### Maps / Geo / Places
@@ -167,4 +167,3 @@ async function firstWorking(candidates) {
 - JSONP executes remote JavaScript; skip unless the endpoint is trusted and explicitly supports it. No useful tested JSONP endpoint was found.
 - Use browser-native context when useful: timezone/language/local date from `Intl`, `navigator.languages`, and `new Date()`.
 - When querying time-sensitive information (e.g., current events, weather, stock prices), always obtain the current date/time first via `new Date()`.
-
