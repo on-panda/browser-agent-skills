@@ -1,6 +1,6 @@
 ---
 name: scheduled-task
-description: 当 browser agent 需要自主启动或定时任务时使用。包含工具、页面保活策略。
+description: (WIP)当 browser agent 需要自主启动或定时任务时使用。包含工具、页面保活策略。
 ---
 
 # 自主启动与定时任务
