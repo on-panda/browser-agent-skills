@@ -39,8 +39,24 @@ the UI 提供了 interaction area 位于你最新的 response 下面
 
 ## iframe
 - 如果需求是完整的网页/独立的 App，可以在 Interaction Area append iframe 组件
-- iframe 组件上方放一排控制按钮（可选全屏、关闭、悬浮 等等）
-    - 用户点击全屏后别把控制按钮隐藏了，方便用户点回窗口模式
+- iframe 组件上方放一排控制按钮（根据需求可选全屏/新窗口、关闭、悬浮 等等）
+    - 控制按钮行保持低调，和 iframe 网页风格一致，方便融入背景
+
+全屏方案：
+iframe.requestFullscreen()
+
+新窗口方案
+openNewTabBtn.onclick = () => {
+  // 1. 把完整的 HTML 字符串变成一个 Blob
+  const blob = new Blob([html], {type: 'text/html'});
+  // 2. 用 Blob 创建一个临时的 URL
+  const url = URL.createObjectURL(blob);
+  // 3. 用 window.open 在这个 URL 上打开新标签页
+  window.open(url, '_blank', 'noopener,noreferrer');
+  // 4. 十分钟后释放内存（此时浏览器已读完内容）
+  setTimeout(() => URL.revokeObjectURL(url), 600000);
+};
+
 
 ## 大型项目
 
@@ -56,3 +72,4 @@ JSX 用 Babel Standalone 在浏览器里转成 JS
 - 如果你支持查看图片，你可以把图片转换为 Blob, 通过 console.log(Blob) 来获得视觉反馈
 - 创建悬浮的小组件时，推荐提供关闭方式，避免对当前 UI 的彻底遮挡
     - 如果用户有关闭了再重新打开的需求，你还可以在 interaction area 内部 appendix 一个打开按钮
+- 用户需要的是网页/独立的 App 等交互物的时候，最后要提醒用户，你可以把对应交付物打包并自动下载到用户电脑
