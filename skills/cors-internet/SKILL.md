@@ -9,7 +9,7 @@ description: "Browser JS agent patterns for web search and information retrieval
 1. **Direct CORS-free JSON API** — fastest, structured, LLM-native. Prefer source-specific APIs over generic search.
 2. **Direct public/demo-key API** — OK for demos; never expose private keys in browser JS.
 3. **RSS/Atom via Jina Reader** — often cleaner than scraping news pages.
-4. **Reader/proxy scrape** — `r.jina.ai` for markdown, Codetabs for raw HTML.
+4. **Reader/proxy scrape** — `r.jina.ai` for markdown, Codetabs for raw HTML, AllOrigins as a secondary raw HTML/XML/text fallback when Jina/Codetabs fail.
 5. **Own tiny proxy** — required for private keys, auth, cookies, custom headers/POSTs, high reliability, or production.
 
 ## Core Search
@@ -21,19 +21,19 @@ description: "Browser JS agent patterns for web search and information retrieval
 ## CORS Proxy Tools
 - **`r.jina.ai`** 🏆: `fetch('https://r.jina.ai/' + targetUrl, {headers:{Accept:'text/markdown'}})` → clean markdown. Free tier/rate-limited; do not loop.
 - **Codetabs**: `https://api.codetabs.com/v1/proxy?quest=ENCODED_URL` → raw HTML. Use when Jina cannot render or when raw DOM matters; GET-only, ~5 MB limit.
+- **AllOrigins**: `https://api.allorigins.win/raw?url=ENCODED_URL` → raw HTML/XML/text. Useful as a secondary fallback for RSS, HTML, and other simple responses when Jina or Codetabs are unavailable.
 - **`api.rss2json.com`** 🏆: `https://api.rss2json.com/v1/api.json?rss_url=ENCODED_RSS_URL` → JSON. CORS-free, no API key. Converts any RSS/Atom feed to clean JSON; pair with news RSS feeds for structured news retrieval.
-- **Own proxy**: use allowlist, timeout, max byte limit, cache, and no credential forwarding by default.
-- Avoid public proxy dead ends already tested: AllOrigins (down/timeout), `corsproxy.io` (localhost-only), ThingProxy (unreachable), cloudflare-cors (manual activation), Wayback Machine (CORS-blocked).
+- Avoid or caveat public proxy dead ends already tested: `corsproxy.io` (free tier localhost/dev only), ThingProxy (unreachable), cloudflare-cors (manual activation), Wayback Machine (CORS-blocked). AllOrigins is currently working, but keep it as a fallback rather than a primary dependency.
 
 ## Vertical APIs — CORS-Friendly First
 
 ### News / Current Events
-- **Reddit `.json`** 🏆: `https://www.reddit.com/r/worldnews/hot.json?limit=5`; also `/r/news`, `/r/technology`, `/r/science`, `/r/politics`, `/r/business`. Filter sticky “Live Thread” / “Discussion Thread”.
+- **Reddit `.json`** 🏆: `https://www.reddit.com/r/worldnews/hot.json?limit=5`; also `/r/news`, `/r/technology`, `/r/science`, `/r/politics`, `/r/business`. If it fails, use Reddit `.rss` via rss2json or Jina instead. Filter sticky “Live Thread” / “Discussion Thread”.
 - **Hacker News**: `https://hacker-news.firebaseio.com/v0/topstories.json` → item JSON by ID. Best for tech/startup signals.
-- **GDELT DOC 2.0**: `https://api.gdeltproject.org/api/v2/doc/doc?query=TERM&mode=ArtList&format=json`; CORS-free but slow, use 12–15s timeout. Use DOC, not GEO.
+- **GDELT DOC 2.0**: `https://api.gdeltproject.org/api/v2/doc/doc?query=TERM&mode=ArtList&format=json`; useful for news search. Use 12–15s timeout. Use DOC, not GEO.
 - **Federal Register**: `https://www.federalregister.gov/api/v1/documents.json?conditions[term]=TERM`; fast US regulations/executive documents.
 - **Library of Congress**: `https://www.loc.gov/search/?fo=json&query=TERM`; CORS-free but slow, use ~12s timeout.
-- **Authoritative headlines**: BBC/Guardian/NPR/TechCrunch/AlJazeera feeds via Jina, RSS via rss2json.
+- **Authoritative headlines**: BBC/Guardian/NPR/TechCrunch/AlJazeera feeds via Jina, RSS via rss2json; use Reddit RSS via rss2json when Reddit `.json` is blocked.
 
 ### Weather / Air / Time
 - **Open-Meteo** 🏆: forecast/current weather JSON worldwide.
@@ -45,7 +45,7 @@ description: "Browser JS agent patterns for web search and information retrieval
 - **Local time context**: prefer `new Date()`, `Intl.DateTimeFormat().resolvedOptions().timeZone`, `navigator.languages`; World Time API was blocked in tests.
 
 ### Stocks / Finance / Crypto / FX
-- **Google Finance via Codetabs** 🏆: proxy `https://www.google.com/finance/quote/SYMBOL:EXCHANGE`; extract `data-last-price`, `.P2Luy` dollar change, nearby percent span. Works for international exchanges (`0700:HKG`).
+- **Google Finance via Codetabs** 🏆: proxy `https://www.google.com/finance/quote/SYMBOL:EXCHANGE`; extract `data-last-price`, then derive change/percent from the quote card because `.P2Luy` is reused elsewhere on the page. Works for international exchanges (`0700:HKG`).
 - **Twelve Data**: `https://api.twelvedata.com/price?symbol=AAPL&apikey=demo`; CORS-free backup, price-only, rate-limited demo key.
 - **Yahoo Finance**: not viable; CORS-blocked and blocks Codetabs.
 - **CoinGecko** 🏆: `https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd&include_24hr_change=true`; use markets endpoint for top coins/market cap. Binance was blocked in tests.
@@ -56,6 +56,7 @@ description: "Browser JS agent patterns for web search and information retrieval
 - **Wikipedia REST summary**: `https://en.wikipedia.org/api/rest_v1/page/summary/TITLE`; simpler page summaries.
 - **Wikidata SPARQL** 🏆: `https://query.wikidata.org/sparql?query=ENCODED_SPARQL&format=json`; exact structured facts/entities.
 - **DuckDuckGo Instant Answer**: `https://api.duckduckgo.com/?q=TERM&format=json`; useful for definitions/disambiguation, often empty for live factual queries.
+- **DictionaryAPI.dev**: `https://api.dictionaryapi.dev/api/v2/entries/en/TERM`; lightweight definitions, pronunciation, and examples with no API key.
 - **Stack Exchange API** 🏆: `https://api.stackexchange.com/2.3/search/advanced?order=desc&sort=relevance&q=TERM&site=stackoverflow&filter=withbody`; switch `site=` for serverfault/superuser/etc.
 
 ### Code / Packages / Security
@@ -93,6 +94,8 @@ description: "Browser JS agent patterns for web search and information retrieval
 - **Launch Library 2**: `https://ll.thespacedevs.com/2.2.0/launch/upcoming/?limit=5`.
 - **Sunrise-Sunset**: `https://api.sunrise-sunset.org/json?lat=LAT&lng=LON&formatted=0`.
 - **TVMaze**: `https://api.tvmaze.com/search/shows?q=TERM`.
+- **PubChem**: `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/caffeine/JSON`; chemical compounds, identifiers, and properties.
+- **Wikimedia Commons API**: `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=cat&gsrlimit=1&prop=imageinfo&iiprop=url&format=json&origin=*`; image/media search for canonical media URLs.
 
 ### Public-APIs
 The public-apis project provides a directory of various free public APIs, covering multiple domains and categories, including: 
