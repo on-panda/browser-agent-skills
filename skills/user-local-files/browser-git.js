@@ -1,38 +1,42 @@
 /*!
  * browser-git.js
- * A tiny browser-only Git diff/status reader for FileSystemDirectoryHandle or FileSystemDirectoryEntry.
+ * A tiny browser-only Git read/diff/status reader for FileSystemDirectoryHandle or FileSystemDirectoryEntry.
  *
  * Usage:
  *   // Load this file as a classic script or import it for side effects.
  *   // It exposes globalThis.BrowserGit.
- *   const git = BrowserGit({ gitDir: repoDirectoryHandle, console });
- *   await git.ready;                 // rejects if .git is not found
- *   await git.diff();                // index vs working tree
- *   await git.diff('--cached');      // HEAD vs index
- *   await git.diff('--stat');
- *   await git.diffStat('--cached');
- *   await git.status();
- *   await git.status('--short');
+ *   const git = BrowserGit({ gitDir: repoDirectoryHandle });
+ *   await git.ready;                         // rejects if .git is not found
+ *   console.log(await git.diff());           // index vs working tree
+ *   console.log(await git.diff('--cached'));  // HEAD vs index
+ *   console.log(await git.diff('--stat'));
+ *   console.log(await git.status());
+ *   console.log(await git.status('--short'));
+ *   console.log(await git.remote('-v'));
+ *   console.log(await git.log('--oneline -n 5'));
+ *   console.log(await git.show('HEAD'));
+ *   console.log(await git.branch('-a'));
  *
  * Notes:
+ *   - Command methods return strings only and never print by themselves; use console.log(await ...).
  *   - Works in browsers with File System Access API or legacy FileSystemDirectoryEntry.
  *   - Reads .git directly; no shell, no network.
  *   - Supports loose objects and pack idx v2, including ofs_delta/ref_delta.
  *   - Git index v2/v3 supported; .gitignore support is intentionally lightweight.
+ *   - Safari does not expose hidden .git directories through the browser picker; use desktop Chrome.
  */
 (function (global) {
   'use strict';
 
   function BrowserGit(options = {}) {
   const root = options && (options.gitDir || options.root || options);
-  const logger = options && options.console && typeof options.console.log === 'function' ? options.console : null;
   const td = new TextDecoder();
   const te = new TextEncoder();
 
   const isHandleLike = x => !!x && (typeof x.getDirectoryHandle === 'function' || typeof x.createReader === 'function');
   if (!isHandleLike(root)) throw new Error('BrowserGit: gitDir must be a FileSystemDirectoryHandle or FileSystemDirectoryEntry');
 
-  function log(value) { if (logger) logger.log(value); return value; }
+  function commandResult(value) { return value == null ? '' : String(value); }
   function isModernDir(x) { return !!x && typeof x.getDirectoryHandle === 'function'; }
   function isModernFile(x) { return !!x && typeof x.getFile === 'function' && !isModernDir(x); }
   function isLegacyDir(x) { return !!x && typeof x.createReader === 'function'; }
@@ -97,9 +101,21 @@
   async function readPathBytesOrNull(path) { try { return await readPathBytes(path); } catch (e) { if (['NotFoundError', 'TypeMismatchError', 'NotFound'].includes(e.name)) return null; throw e; } }
   async function readPathTextOrNull(path) { try { return await readPathText(path); } catch (e) { if (['NotFoundError', 'TypeMismatchError', 'NotFound'].includes(e.name)) return null; throw e; } }
 
-  const cache = { idx: new Map(), packBytes: new Map(), objAtOffset: new Map(), objByHash: new Map(), packList: null };
+  const cache = { idx: new Map(), packBytes: new Map(), objAtOffset: new Map(), objByHash: new Map(), packList: null, packedRefs: null };
+
+  function isProbablySafari() {
+    const nav = globalThis.navigator || {};
+    const ua = nav.userAgent || '';
+    const vendor = nav.vendor || '';
+    const brands = nav.userAgentData && Array.isArray(nav.userAgentData.brands) ? nav.userAgentData.brands.map(b => b.brand).join(' ') : '';
+    return /Apple/i.test(vendor) && /Safari/i.test(ua) && !/Chrome|Chromium|CriOS|FxiOS|Edg|OPR|Opera|Android/i.test(ua) && !/Chromium|Google Chrome|Microsoft Edge|Opera/i.test(brands);
+  }
+  function missingGitDirErrorMessage() {
+    if (isProbablySafari()) return 'BrowserGit: .git not found. Safari does not expose hidden `.git` directories to browser JavaScript/File System Access, so this repository cannot be read in Safari. Please switch to desktop Chrome and select the repository directory again.';
+    return 'BrowserGit: .git not found in gitDir. Select the repository root directory that contains a .git folder.';
+  }
   const ready = (async () => {
-    if (!(await existsDir(root, '.git'))) throw new Error('BrowserGit: .git not found in gitDir');
+    if (!(await existsDir(root, '.git'))) throw new Error(missingGitDirErrorMessage());
     if (typeof DecompressionStream !== 'function') throw new Error('BrowserGit: DecompressionStream is required to read git objects in this browser');
     if (!globalThis.crypto || !crypto.subtle) throw new Error('BrowserGit: crypto.subtle is required to hash working-tree files');
     return true;
@@ -344,22 +360,314 @@
     }
     return out;
   }
+
+  function isFullHash(s) { return /^[0-9a-f]{40}$/i.test(String(s || '')); }
+  function isAbbrevHash(s) { return /^[0-9a-f]{4,40}$/i.test(String(s || '')); }
+  function firstLine(text) { return String(text || '').split(/\r?\n/)[0].trim(); }
+  function notFoundName(e) { return e && ['NotFoundError', 'TypeMismatchError', 'NotFound'].includes(e.name); }
+  function unescapeConfigString(s) {
+    return String(s || '').replace(/\\([\\"])/g, '$1');
+  }
+  function parseGitConfigText(text) {
+    const sections = [];
+    let current = null;
+    for (let raw of String(text || '').split(/\r?\n/)) {
+      let line = raw.trim();
+      if (!line || line.startsWith('#') || line.startsWith(';')) continue;
+      const hash = line.indexOf('#'), semi = line.indexOf(';');
+      const cut = [hash, semi].filter(i => i >= 0).sort((a, b) => a - b)[0];
+      if (cut != null && cut > 0 && /\s/.test(line[cut - 1])) line = line.slice(0, cut).trim();
+      const sec = line.match(/^\[([^\s\]"']+)(?:\s+"((?:\\.|[^"])*)")?\]$/);
+      if (sec) {
+        current = { name: sec[1].toLowerCase(), subsection: sec[2] != null ? unescapeConfigString(sec[2]) : null, values: new Map() };
+        sections.push(current);
+        continue;
+      }
+      if (!current) continue;
+      const eq = line.indexOf('=');
+      const key = (eq >= 0 ? line.slice(0, eq) : line).trim().toLowerCase();
+      let value = eq >= 0 ? line.slice(eq + 1).trim() : 'true';
+      if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) value = value.slice(1, -1);
+      value = unescapeConfigString(value);
+      if (!current.values.has(key)) current.values.set(key, []);
+      current.values.get(key).push(value);
+    }
+    return sections;
+  }
+  async function readGitConfig() {
+    return parseGitConfigText(await readPathTextOrNull('.git/config') || '');
+  }
+  function configValues(sections, name, subsection, key) {
+    const out = [];
+    for (const s of sections) if (s.name === name && (subsection == null || s.subsection === subsection)) out.push(...(s.values.get(key.toLowerCase()) || []));
+    return out;
+  }
+  async function getRemoteMap() {
+    const remotes = new Map();
+    for (const s of await readGitConfig()) {
+      if (s.name !== 'remote' || !s.subsection) continue;
+      const name = s.subsection;
+      remotes.set(name, {
+        name,
+        url: [...(s.values.get('url') || [])],
+        pushurl: [...(s.values.get('pushurl') || [])],
+      });
+    }
+    return remotes;
+  }
+  async function upstreamForBranch(branchName) {
+    const sections = await readGitConfig();
+    const remote = configValues(sections, 'branch', branchName, 'remote')[0];
+    const merge = configValues(sections, 'branch', branchName, 'merge')[0];
+    if (!remote || !merge) return '';
+    const shortMerge = merge.replace(/^refs\/heads\//, '');
+    return remote === '.' ? shortMerge : `${remote}/${shortMerge}`;
+  }
+  async function readPackedRefs() {
+    if (cache.packedRefs) return cache.packedRefs;
+    const packed = new Map();
+    const text = await readPathTextOrNull('.git/packed-refs');
+    let lastRef = null;
+    if (text) {
+      for (const raw of text.split(/\r?\n/)) {
+        const line = raw.trim();
+        if (!line || line.startsWith('#')) continue;
+        if (line.startsWith('^')) {
+          if (lastRef && packed.has(lastRef)) packed.get(lastRef).peeled = line.slice(1).trim();
+          continue;
+        }
+        const m = line.match(/^([0-9a-f]{40})\s+(.+)$/i);
+        if (!m) continue;
+        lastRef = m[2].trim();
+        packed.set(lastRef, { ref: lastRef, hash: m[1].toLowerCase(), peeled: null, packed: true });
+      }
+    }
+    cache.packedRefs = packed;
+    return packed;
+  }
+  async function resolveRef(ref = 'HEAD', seen = new Set()) {
+    ref = String(ref || 'HEAD').trim();
+    if (!ref) ref = 'HEAD';
+    if (isFullHash(ref)) return ref.toLowerCase();
+    if (seen.has(ref)) throw new Error(`BrowserGit: cyclic git ref: ${ref}`);
+    seen.add(ref);
+    if (ref === 'HEAD') {
+      const head = await readPathTextOrNull('.git/HEAD');
+      if (!head) return null;
+      const line = firstLine(head);
+      if (line.startsWith('ref: ')) return await resolveRef(line.slice(5).trim(), seen);
+      return isFullHash(line) ? line.toLowerCase() : null;
+    }
+    const candidates = ref.startsWith('refs/') ? [ref] : [ref, `refs/heads/${ref}`, `refs/remotes/${ref}`, `refs/tags/${ref}`];
+    for (const candidate of candidates) {
+      const text = await readPathTextOrNull(`.git/${candidate}`);
+      if (!text) continue;
+      const line = firstLine(text);
+      if (line.startsWith('ref: ')) return await resolveRef(line.slice(5).trim(), seen);
+      if (isFullHash(line)) return line.toLowerCase();
+    }
+    const packed = await readPackedRefs();
+    for (const candidate of candidates) if (packed.has(candidate)) return packed.get(candidate).hash;
+    return null;
+  }
+  async function listLooseRefs(prefix) {
+    const out = [];
+    async function walk(dir, refPrefix) {
+      for (const [name, handle] of await readDirEntries(dir)) {
+        const ref = `${refPrefix}/${name}`;
+        if (isDir(handle)) await walk(handle, ref);
+        else if (isFile(handle)) {
+          const text = await readTextFromFileHandle(handle);
+          const line = firstLine(text);
+          let hash = null, symbolic = null;
+          if (line.startsWith('ref: ')) { symbolic = line.slice(5).trim(); hash = await resolveRef(symbolic); }
+          else if (isFullHash(line)) hash = line.toLowerCase();
+          if (hash) out.push({ ref, hash, symbolic, packed: false });
+        }
+      }
+    }
+    try { await walk(await getHandleByPath(root, `.git/${prefix}`, 'directory'), prefix); }
+    catch (e) { if (!notFoundName(e)) throw e; }
+    return out;
+  }
+  async function listRefs(prefixes = ['refs/heads', 'refs/remotes', 'refs/tags']) {
+    const map = new Map();
+    for (const prefix of prefixes) for (const r of await listLooseRefs(prefix)) map.set(r.ref, r);
+    const packed = await readPackedRefs();
+    for (const [ref, r] of packed) if (prefixes.some(p => ref === p || ref.startsWith(p + '/')) && !map.has(ref)) map.set(ref, { ...r });
+    return Array.from(map.values()).sort((a, b) => a.ref.localeCompare(b.ref));
+  }
+  async function resolveAbbrevHash(prefix) {
+    prefix = String(prefix || '').toLowerCase();
+    if (!isAbbrevHash(prefix)) return null;
+    if (prefix.length === 40) return prefix;
+    const matches = new Set();
+    for (const r of await listRefs()) if (r.hash && r.hash.startsWith(prefix)) matches.add(r.hash);
+    try {
+      const dir = await getHandleByPath(root, `.git/objects/${prefix.slice(0, 2)}`, 'directory');
+      for (const [name, handle] of await readDirEntries(dir)) if (isFile(handle)) {
+        const h = prefix.slice(0, 2) + name;
+        if (h.startsWith(prefix) && isFullHash(h)) matches.add(h);
+      }
+    } catch (e) { if (!notFoundName(e)) throw e; }
+    for (const baseName of await listPackBaseNames()) {
+      const idx = await getPackIndex(baseName);
+      for (let i = 0; i < idx.count; i++) {
+        const h = hex(idx.names.slice(i * 20, i * 20 + 20));
+        if (h.startsWith(prefix)) matches.add(h);
+      }
+    }
+    if (matches.size > 1) throw new Error(`BrowserGit: ambiguous object name: ${prefix}`);
+    return matches.values().next().value || null;
+  }
+  function parseTag(body) {
+    const text = td.decode(body);
+    const cut = text.indexOf('\n\n');
+    const headers = cut >= 0 ? text.slice(0, cut) : text;
+    const message = cut >= 0 ? text.slice(cut + 2) : '';
+    const out = { message };
+    for (const line of headers.split('\n')) {
+      const sp = line.indexOf(' ');
+      if (sp < 0) continue;
+      out[line.slice(0, sp)] = line.slice(sp + 1);
+    }
+    return out;
+  }
+  async function peelToType(hash, targetType = 'commit') {
+    hash = String(hash || '').trim().toLowerCase();
+    for (let i = 0; i < 20; i++) {
+      const obj = await readObject(hash);
+      if (!obj) return null;
+      if (obj.type === targetType) return hash;
+      if (obj.type === 'tag') { hash = parseTag(obj.body).object; continue; }
+      throw new Error(`BrowserGit: object ${hash} is ${obj.type}, not ${targetType}`);
+    }
+    throw new Error('BrowserGit: too many nested tags');
+  }
+  function splitAncestry(rev) {
+    let base = String(rev || 'HEAD').trim();
+    const ops = [];
+    while (true) {
+      const m = base.match(/([~^])(\d*)$/);
+      if (!m) break;
+      ops.unshift({ op: m[1], n: m[2] === '' ? 1 : Number(m[2]) });
+      base = base.slice(0, m.index);
+    }
+    return { base: base || 'HEAD', ops };
+  }
+  async function readCommitByHash(hash) {
+    const commitHash = await peelToType(hash, 'commit');
+    const obj = await readObject(commitHash);
+    const commit = parseCommit(obj.body);
+    commit.hash = commitHash;
+    return commit;
+  }
+  async function resolveCommitish(rev = 'HEAD') {
+    const { base, ops } = splitAncestry(rev);
+    let hash = await resolveRef(base);
+    if (!hash && isAbbrevHash(base)) hash = await resolveAbbrevHash(base);
+    if (!hash) throw new Error(`BrowserGit: unknown revision: ${rev}`);
+    for (const op of ops) {
+      if (op.op === '^' && op.n === 0) { hash = await peelToType(hash, 'commit'); continue; }
+      const repeat = op.op === '~' ? op.n : 1;
+      const parentIndex = op.op === '^' ? Math.max(1, op.n) - 1 : 0;
+      for (let i = 0; i < repeat; i++) {
+        const commit = await readCommitByHash(hash);
+        if (!commit.parents[parentIndex]) throw new Error(`BrowserGit: revision ${rev} has no requested parent`);
+        hash = commit.parents[parentIndex];
+      }
+    }
+    return await peelToType(hash, 'commit');
+  }
+  async function resolveObjectHash(spec = 'HEAD') {
+    spec = String(spec || 'HEAD').trim() || 'HEAD';
+    let hash = await resolveRef(spec);
+    if (!hash && isAbbrevHash(spec)) hash = await resolveAbbrevHash(spec);
+    if (!hash && /[~^]\d*$/.test(spec)) hash = await resolveCommitish(spec);
+    if (!hash) throw new Error(`BrowserGit: unknown object: ${spec}`);
+    return hash;
+  }
+  async function treeMapForCommitHash(hash) {
+    const commit = await readCommitByHash(hash);
+    if (!commit.tree) return new Map();
+    return await buildTreeMap(commit.tree);
+  }
+  async function diffEntriesBetweenMaps(oldMap, newMap, opts = {}) {
+    const out = [];
+    const paths = Array.from(new Set([...oldMap.keys(), ...newMap.keys()])).filter(p => pathMatches(p, opts.paths)).sort();
+    for (const path of paths) {
+      const oldE = oldMap.get(path) || null;
+      const newE = newMap.get(path) || null;
+      if (!oldE && !newE) continue;
+      if (oldE && newE && oldE.sha === newE.sha && oldE.mode === newE.mode) continue;
+      out.push({ path, oldEntry: oldE, newEntry: newE, oldSha: oldE?.sha || null, newSha: newE?.sha || null, oldMode: oldE?.mode || null, newMode: newE?.mode || null });
+    }
+    return out;
+  }
+  async function commitDiffEntries(hash, commit = null, opts = {}) {
+    commit = commit || await readCommitByHash(hash);
+    const oldMap = commit.parents && commit.parents[0] ? await treeMapForCommitHash(commit.parents[0]) : new Map();
+    const newMap = commit.tree ? await buildTreeMap(commit.tree) : new Map();
+    return await diffEntriesBetweenMaps(oldMap, newMap, opts);
+  }
+  async function renderDiffEntriesText(entries, opts = {}) {
+    const out = [];
+    for (const e of entries) {
+      const oldBytes = await entryBytes(e.oldEntry, e.path);
+      const newBytes = await entryBytes(e.newEntry, e.path);
+      const d = renderUnifiedDiff(e.path, oldBytes, newBytes, e, opts.context ?? 3);
+      if (d) out.push(d);
+    }
+    return out.join('\n');
+  }
+  function parsePerson(raw) {
+    const m = String(raw || '').match(/^(.*?)(?:\s+<([^>]*)>)?\s+(\d+)\s+([+-]\d{4})$/);
+    if (!m) return { raw: String(raw || '') };
+    return { raw: String(raw || ''), name: m[1].trim(), email: m[2] || '', timestamp: Number(m[3]), tz: m[4] };
+  }
+  function formatPersonName(raw) {
+    const p = parsePerson(raw);
+    if (p.name || p.email) return p.email ? `${p.name} <${p.email}>` : p.name;
+    return p.raw.replace(/\s+\d+\s+[+-]\d{4}$/, '');
+  }
+  function formatGitDate(raw) {
+    const p = parsePerson(raw);
+    if (!Number.isFinite(p.timestamp)) return p.raw || '';
+    const tz = p.tz || '+0000';
+    const sign = tz[0] === '-' ? -1 : 1;
+    const offset = sign * (Number(tz.slice(1, 3)) * 60 + Number(tz.slice(3, 5)));
+    const d = new Date((p.timestamp + offset * 60) * 1000);
+    const w = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getUTCDay()];
+    const mo = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getUTCMonth()];
+    const pad = n => String(n).padStart(2, '0');
+    return `${w} ${mo} ${String(d.getUTCDate()).padStart(2, ' ')} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())} ${d.getUTCFullYear()} ${tz}`;
+  }
+  function commitSubject(commit) { return splitLines(String(commit.message || '').trim())[0] || ''; }
+  function renderIndentedMessage(message) {
+    const body = String(message || '').replace(/\s+$/, '');
+    if (!body) return [];
+    return body.split(/\r?\n/).map(line => line ? `    ${line}` : '');
+  }
+  function renderCommitHeader(hash, commit, opts = {}) {
+    const subject = commitSubject(commit);
+    if (opts.oneline) return `${shortHash(hash)} ${subject}`.trimEnd();
+    const lines = [`commit ${hash}`];
+    if (commit.parents && commit.parents.length > 1) lines.push(`Merge: ${commit.parents.map(shortHash).join(' ')}`);
+    if (commit.author) lines.push(`Author: ${formatPersonName(commit.author)}`);
+    if (commit.author) lines.push(`Date:   ${formatGitDate(commit.author)}`);
+    lines.push('', ...renderIndentedMessage(commit.message));
+    return lines.join('\n');
+  }
+  function commitTime(commit) {
+    const c = parsePerson(commit.committer || commit.author || '');
+    return Number.isFinite(c.timestamp) ? c.timestamp : 0;
+  }
+
   async function getHeadInfo() {
     const headText = (await readPathText('.git/HEAD')).trim();
     if (!headText.startsWith('ref: ')) return { detached: true, branch: null, ref: null, hash: headText };
     const ref = headText.slice(5).trim();
-    let hash = await readPathTextOrNull(`.git/${ref}`);
-    if (hash) hash = hash.trim();
-    if (!hash) {
-      const packed = await readPathTextOrNull('.git/packed-refs');
-      if (packed) {
-        for (const line of packed.split(/\r?\n/)) {
-          if (!line || line[0] === '#' || line[0] === '^') continue;
-          const [h, r] = line.split(' ');
-          if (r === ref) { hash = h; break; }
-        }
-      }
-    }
+    const hash = await resolveRef(ref);
     return { detached: false, branch: ref.replace(/^refs\/heads\//, ''), ref, hash: hash || null };
   }
   async function getHeadHash() { const h = await getHeadInfo(); return h.hash; }
@@ -382,7 +690,8 @@
     return await buildTreeMap(commit.tree);
   }
   async function parseIndex() {
-    const bytes = await readPathBytes('.git/index');
+    const bytes = await readPathBytesOrNull('.git/index');
+    if (!bytes) return { sig: 'DIRC', version: 2, count: 0, entries: [], checksum: '' };
     const sig = td.decode(bytes.slice(0, 4));
     if (sig !== 'DIRC') throw new Error('BrowserGit: unsupported git index: bad signature');
     const version = u32be(bytes, 4);
@@ -406,6 +715,32 @@
     return { sig, version, count, entries, checksum: hex(bytes.slice(bytes.length - 20)) };
   }
   async function indexMap() { const idx = await parseIndex(); return new Map(idx.entries.map(e => [e.path, e])); }
+
+  function flattenCommandArgs(rawArgs) {
+    const tokens = [];
+    const objects = [];
+    for (const arg of rawArgs) {
+      if (Array.isArray(arg)) tokens.push(...arg.map(String));
+      else if (typeof arg === 'string') tokens.push(...arg.trim().split(/\s+/).filter(Boolean));
+      else if (arg && typeof arg === 'object' && !isHandleLike(arg)) objects.push(arg);
+    }
+    return { tokens, objects };
+  }
+  function applyObjectOptions(opts, objects) {
+    for (const obj of objects) {
+      Object.assign(opts, obj);
+      if (obj.paths != null) opts.paths = Array.isArray(obj.paths) ? [...obj.paths] : [obj.paths];
+      if (obj.path != null && opts.paths && !opts.paths.length) opts.paths = [obj.path];
+      if (obj.maxCount != null) opts.maxCount = Number(obj.maxCount);
+    }
+    return opts;
+  }
+  function parseContextOption(t, next) {
+    if (t === '-U' || t === '--unified') return { usedNext: true, value: Math.max(0, Number(next || 3)) };
+    let m = t.match(/^-U(\d+)$/); if (m) return { usedNext: false, value: Number(m[1]) };
+    m = t.match(/^--unified=(\d+)$/); if (m) return { usedNext: false, value: Number(m[1]) };
+    return null;
+  }
   function parseArgs(rawArgs, defaults = {}) {
     const out = { cached: false, stat: false, short: false, porcelain: false, paths: [], context: 3, ...defaults };
     const tokens = [];
@@ -680,12 +1015,12 @@
   async function diff(...args) {
     await ready;
     const opts = parseArgs(args);
-    return log(opts.stat ? await diffStatText(opts) : await diffText(opts));
+    return commandResult(opts.stat ? await diffStatText(opts) : await diffText(opts));
   }
   async function diffStat(...args) {
     await ready;
     const opts = parseArgs(args, { stat: true });
-    return log(await diffStatText(opts));
+    return commandResult(await diffStatText(opts));
   }
   async function status(...args) {
     await ready;
@@ -696,9 +1031,253 @@
       const paths = new Set([...stat.staged.map(x => x.path), ...stat.unstaged.map(x => x.path), ...stat.untracked]);
       const stagedMap = new Map(stat.staged.map(x => [x.path, x.status]));
       const unstagedMap = new Map(stat.unstaged.map(x => [x.path, x.status]));
-      return log(Array.from(paths).sort().map(p => stat.untracked.includes(p) ? `?? ${p}` : `${stagedMap.get(p) || ' '}${unstagedMap.get(p) || ' '} ${p}`).join('\n'));
+      return commandResult(Array.from(paths).sort().map(p => stat.untracked.includes(p) ? `?? ${p}` : `${stagedMap.get(p) || ' '}${unstagedMap.get(p) || ' '} ${p}`).join('\n'));
     }
-    return log(renderStatus(stat, head));
+    return commandResult(renderStatus(stat, head));
+  }
+
+
+  function parseRemoteCommandArgs(rawArgs) {
+    const { tokens, objects } = flattenCommandArgs(rawArgs);
+    const opts = applyObjectOptions({ verbose: false }, objects);
+    for (const t of tokens) {
+      if (t === '-v' || t === '--verbose') opts.verbose = true;
+      else if (t === '--') continue;
+      else throw new Error(`BrowserGit: only read-only git remote listing is supported (use git.remote('-v')); unsupported argument: ${t}`);
+    }
+    return opts;
+  }
+  async function gitRemote(...args) {
+    await ready;
+    const opts = parseRemoteCommandArgs(args);
+    const remotes = Array.from((await getRemoteMap()).values()).sort((a, b) => a.name.localeCompare(b.name));
+    if (!opts.verbose) return commandResult(remotes.map(r => r.name).join('\n'));
+    const lines = [];
+    for (const r of remotes) {
+      const fetchUrls = r.url.length ? r.url : [];
+      const pushUrls = r.pushurl.length ? r.pushurl : fetchUrls;
+      for (const url of fetchUrls) lines.push(`${r.name}\t${url} (fetch)`);
+      for (const url of pushUrls) lines.push(`${r.name}\t${url} (push)`);
+    }
+    return commandResult(lines.join('\n'));
+  }
+  function parseBranchCommandArgs(rawArgs) {
+    const { tokens, objects } = flattenCommandArgs(rawArgs);
+    const opts = applyObjectOptions({ all: false, remotes: false, verbose: 0, showCurrent: false }, objects);
+    for (const t of tokens) {
+      if (t === '--show-current') opts.showCurrent = true;
+      else if (t === '-a' || t === '--all') opts.all = true;
+      else if (t === '-r' || t === '--remotes') opts.remotes = true;
+      else if (t === '-v' || t === '--verbose') opts.verbose = Math.max(opts.verbose, 1);
+      else if (t === '-vv') opts.verbose = Math.max(opts.verbose, 2);
+      else if (/^-[arv]+$/.test(t)) {
+        if (t.includes('a')) opts.all = true;
+        if (t.includes('r')) opts.remotes = true;
+        const vCount = (t.match(/v/g) || []).length;
+        if (vCount) opts.verbose = Math.max(opts.verbose, vCount);
+      }
+      else if (t === '--no-color' || t.startsWith('--color')) continue;
+      else throw new Error(`BrowserGit: git branch is read-only here; creating/deleting/renaming branches is not supported: ${t}`);
+    }
+    return opts;
+  }
+  async function gitBranch(...args) {
+    await ready;
+    const opts = parseBranchCommandArgs(args);
+    const head = await getHeadInfo();
+    if (opts.showCurrent) return commandResult(head.detached ? '' : (head.branch || ''));
+    const items = [];
+    if (!opts.remotes || opts.all) {
+      for (const r of await listRefs(['refs/heads'])) items.push({ kind: 'local', ref: r.ref, name: r.ref.replace(/^refs\/heads\//, ''), display: r.ref.replace(/^refs\/heads\//, ''), hash: r.hash, current: !head.detached && r.ref === head.ref });
+    }
+    if (opts.remotes || opts.all) {
+      for (const r of await listRefs(['refs/remotes'])) {
+        const short = r.ref.replace(/^refs\/remotes\//, '');
+        if (/\/HEAD$/.test(short)) continue;
+        items.push({ kind: 'remote', ref: r.ref, name: short, display: opts.all ? `remotes/${short}` : short, hash: r.hash, current: false });
+      }
+    }
+    items.sort((a, b) => a.display.localeCompare(b.display));
+    if (head.detached && !opts.remotes) items.unshift({ kind: 'detached', display: `(HEAD detached at ${shortHash(head.hash)})`, hash: head.hash, current: true });
+    const width = items.length ? Math.max(...items.map(x => x.display.length)) : 0;
+    const lines = [];
+    for (const item of items) {
+      const mark = item.current ? '*' : ' ';
+      if (!opts.verbose) { lines.push(`${mark} ${item.display}`); continue; }
+      let subject = '';
+      try { subject = item.hash ? commitSubject(await readCommitByHash(item.hash)) : ''; } catch (_) {}
+      let upstream = '';
+      if (opts.verbose >= 2 && item.kind === 'local') upstream = await upstreamForBranch(item.name);
+      lines.push(`${mark} ${item.display.padEnd(width)} ${shortHash(item.hash)}${upstream ? ` [${upstream}]` : ''}${subject ? ` ${subject}` : ''}`.trimEnd());
+    }
+    return commandResult(lines.join('\n'));
+  }
+  function parseLogCommandArgs(rawArgs) {
+    const { tokens, objects } = flattenCommandArgs(rawArgs);
+    const opts = applyObjectOptions({ maxCount: Infinity, oneline: false, stat: false, patch: false, nameOnly: false, all: false, revs: [], paths: [], context: 3 }, objects);
+    let afterDashDash = false;
+    for (let i = 0; i < tokens.length; i++) {
+      const t = tokens[i];
+      if (afterDashDash) { opts.paths.push(t); continue; }
+      if (t === '--') { afterDashDash = true; continue; }
+      if (t === '--oneline') { opts.oneline = true; continue; }
+      if (t === '--stat') { opts.stat = true; continue; }
+      if (t === '-p' || t === '--patch') { opts.patch = true; continue; }
+      if (t === '--name-only') { opts.nameOnly = true; continue; }
+      if (t === '--all') { opts.all = true; continue; }
+      if (t === '--no-color' || t.startsWith('--color')) continue;
+      let c = parseContextOption(t, tokens[i + 1]);
+      if (c) { opts.context = c.value; if (c.usedNext) i++; continue; }
+      let m = t.match(/^--max-count=(\d+)$/); if (m) { opts.maxCount = Number(m[1]); continue; }
+      if (t === '--max-count' || t === '-n') { opts.maxCount = Number(tokens[++i] || 0); continue; }
+      m = t.match(/^-n(\d+)$/); if (m) { opts.maxCount = Number(m[1]); continue; }
+      m = t.match(/^-(\d+)$/); if (m) { opts.maxCount = Number(m[1]); continue; }
+      m = t.match(/^--(?:pretty|format)=(.+)$/); if (m) { if (/oneline/.test(m[1])) opts.oneline = true; continue; }
+      if (t.startsWith('-')) throw new Error(`BrowserGit: unsupported git log option: ${t}`);
+      opts.revs.push(t);
+    }
+    return opts;
+  }
+  async function logStartHashes(opts) {
+    if (opts.all) {
+      const refs = await listRefs(['refs/heads', 'refs/remotes', 'refs/tags']);
+      return Array.from(new Set(refs.map(r => r.hash).filter(Boolean)));
+    }
+    const revs = opts.revs.length ? opts.revs : ['HEAD'];
+    const out = [];
+    for (const spec of revs) {
+      try { out.push(await resolveCommitish(spec)); }
+      catch (e) {
+        if (opts.revs.length) opts.paths.push(spec);
+        else throw e;
+      }
+    }
+    if (!out.length && opts.revs.length) out.push(await resolveCommitish('HEAD'));
+    return Array.from(new Set(out));
+  }
+  async function commitTouchesPaths(hash, commit, paths) {
+    if (!paths || !paths.length) return true;
+    return (await commitDiffEntries(hash, commit, { paths })).length > 0;
+  }
+  async function walkCommits(startHashes, opts) {
+    const pending = [];
+    const queued = new Set();
+    async function enqueue(hash) {
+      hash = await peelToType(hash, 'commit');
+      if (!hash || queued.has(hash)) return;
+      queued.add(hash);
+      const commit = await readCommitByHash(hash);
+      pending.push({ hash, commit, time: commitTime(commit) });
+    }
+    for (const h of startHashes) await enqueue(h);
+    const seen = new Set();
+    const out = [];
+    while (pending.length && out.length < opts.maxCount) {
+      pending.sort((a, b) => b.time - a.time || a.hash.localeCompare(b.hash));
+      const item = pending.shift();
+      if (seen.has(item.hash)) continue;
+      seen.add(item.hash);
+      if (await commitTouchesPaths(item.hash, item.commit, opts.paths)) out.push(item);
+      for (const p of item.commit.parents || []) await enqueue(p);
+    }
+    return out;
+  }
+  async function renderLogCommit(hash, commit, opts) {
+    const parts = [renderCommitHeader(hash, commit, opts)];
+    let entries = null;
+    if (opts.nameOnly || opts.stat || opts.patch) entries = await commitDiffEntries(hash, commit, opts);
+    if (opts.nameOnly && entries.length) parts.push(entries.map(e => e.path).join('\n'));
+    if (opts.stat && entries.length) parts.push(renderStat(await statForEntries(entries)));
+    if (opts.patch && entries.length) parts.push(await renderDiffEntriesText(entries, opts));
+    return parts.filter(x => x != null && x !== '').join(opts.oneline ? '\n' : '\n\n');
+  }
+  async function gitLog(...args) {
+    await ready;
+    const opts = parseLogCommandArgs(args);
+    if (!Number.isFinite(opts.maxCount)) opts.maxCount = Infinity;
+    const startHashes = await logStartHashes(opts);
+    const commits = await walkCommits(startHashes, opts);
+    const chunks = [];
+    for (const { hash, commit } of commits) chunks.push(await renderLogCommit(hash, commit, opts));
+    return commandResult(chunks.join(opts.oneline ? '\n' : '\n\n'));
+  }
+  function parseShowCommandArgs(rawArgs) {
+    const { tokens, objects } = flattenCommandArgs(rawArgs);
+    const opts = applyObjectOptions({ object: null, paths: [], stat: false, patch: null, noPatch: false, nameOnly: false, oneline: false, context: 3 }, objects);
+    let afterDashDash = false;
+    for (let i = 0; i < tokens.length; i++) {
+      const t = tokens[i];
+      if (afterDashDash) { opts.paths.push(t); continue; }
+      if (t === '--') { afterDashDash = true; continue; }
+      if (t === '--stat') { opts.stat = true; if (opts.patch == null) opts.patch = false; continue; }
+      if (t === '-p' || t === '--patch') { opts.patch = true; continue; }
+      if (t === '--no-patch' || t === '-s') { opts.noPatch = true; opts.patch = false; continue; }
+      if (t === '--name-only') { opts.nameOnly = true; opts.patch = false; continue; }
+      if (t === '--oneline') { opts.oneline = true; continue; }
+      if (t === '--no-color' || t.startsWith('--color')) continue;
+      let c = parseContextOption(t, tokens[i + 1]);
+      if (c) { opts.context = c.value; if (c.usedNext) i++; continue; }
+      let m = t.match(/^--(?:pretty|format)=(.+)$/); if (m) { if (/oneline/.test(m[1])) opts.oneline = true; continue; }
+      if (t.startsWith('-')) throw new Error(`BrowserGit: unsupported git show option: ${t}`);
+      if (!opts.object) opts.object = t; else opts.paths.push(t);
+    }
+    if (!opts.object) opts.object = 'HEAD';
+    if (opts.patch == null) opts.patch = !opts.noPatch && !opts.stat && !opts.nameOnly;
+    return opts;
+  }
+  function splitRevPathSpec(spec) {
+    const s = String(spec || '');
+    const i = s.indexOf(':');
+    if (i <= 0) return null;
+    return { rev: s.slice(0, i) || 'HEAD', path: s.slice(i + 1) };
+  }
+  async function showBlobAtRev(rev, path) {
+    const commitHash = await resolveCommitish(rev || 'HEAD');
+    const map = await treeMapForCommitHash(commitHash);
+    const entry = map.get(path);
+    if (!entry) throw new Error(`BrowserGit: path not found in ${rev}: ${path}`);
+    const bytes = await readBlob(entry.sha);
+    if (looksBinary(bytes)) return `Binary file ${path} (${entry.sha})`;
+    return td.decode(bytes);
+  }
+  async function renderShowCommit(hash, commit, opts) {
+    const parts = [renderCommitHeader(hash, commit, opts)];
+    let entries = null;
+    if (opts.nameOnly || opts.stat || opts.patch) entries = await commitDiffEntries(hash, commit, opts);
+    if (opts.nameOnly && entries.length) parts.push(entries.map(e => e.path).join('\n'));
+    if (opts.stat && entries.length) parts.push(renderStat(await statForEntries(entries)));
+    if (opts.patch && entries.length) parts.push(await renderDiffEntriesText(entries, opts));
+    return parts.filter(x => x != null && x !== '').join(opts.oneline ? '\n' : '\n\n');
+  }
+  function renderTagObject(hash, tag) {
+    const lines = [`tag ${tag.tag || shortHash(hash)}`];
+    if (tag.tagger) lines.push(`Tagger: ${formatPersonName(tag.tagger)}`, `Date:   ${formatGitDate(tag.tagger)}`);
+    lines.push('', ...renderIndentedMessage(tag.message));
+    return lines.join('\n');
+  }
+  async function gitShow(...args) {
+    await ready;
+    const opts = parseShowCommandArgs(args);
+    const revPath = splitRevPathSpec(opts.object);
+    if (revPath) return commandResult(await showBlobAtRev(revPath.rev, revPath.path));
+    const hash = await resolveObjectHash(opts.object);
+    const obj = await readObject(hash);
+    if (!obj) throw new Error(`BrowserGit: object not found: ${opts.object}`);
+    if (obj.type === 'commit') return commandResult(await renderShowCommit(hash, parseCommit(obj.body), opts));
+    if (obj.type === 'blob') return commandResult(looksBinary(obj.body) ? `Binary object ${hash}` : td.decode(obj.body));
+    if (obj.type === 'tree') return commandResult(parseTree(obj.body).map(e => `${e.mode} ${e.sha}\t${e.name}`).join('\n'));
+    if (obj.type === 'tag') {
+      const tag = parseTag(obj.body);
+      const parts = [renderTagObject(hash, tag)];
+      if (tag.object) {
+        try {
+          const target = await readObject(tag.object);
+          if (target && target.type === 'commit') parts.push(await renderShowCommit(tag.object, parseCommit(target.body), opts));
+        } catch (_) {}
+      }
+      return commandResult(parts.filter(Boolean).join('\n\n'));
+    }
+    return commandResult(`${obj.type} ${hash}\n${td.decode(obj.body)}`);
   }
 
   return {
@@ -706,14 +1285,10 @@
     diff,
     diffStat,
     status,
-    getHeadInfo: async () => { await ready; return getHeadInfo(); },
-    getHeadHash: async () => { await ready; return getHeadHash(); },
-    readObject: async hash => { await ready; return readObject(hash); },
-    readBlob: async hash => { await ready; return readBlob(hash); },
-    parseIndex: async () => { await ready; return parseIndex(); },
-    indexMap: async () => { await ready; return indexMap(); },
-    headTreeMap: async () => { await ready; return headTreeMap(); },
-    buildStatus: async (...args) => { await ready; return buildStatus(parseArgs(args)); },
+    remote: gitRemote,
+    log: gitLog,
+    show: gitShow,
+    branch: gitBranch,
   };
 }
 
