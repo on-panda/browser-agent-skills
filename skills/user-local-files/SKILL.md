@@ -45,8 +45,7 @@ When you need to inspect local git repository status, diffs, commit history, bra
 
 ```js
 if (!globalThis.BrowserGit) {
-  const src = await fetch('https://raw.githubusercontent.com/on-panda/browser-agent-skills/main/skills/user-local-files/browser-git.js').then(r => r.text())
-  (0, eval)(src)
+  (0, eval)(await fetch('https://raw.githubusercontent.com/on-panda/browser-agent-skills/main/skills/user-local-files/browser-git.js').then(r => r.text()))
 }
 const repo = browserAgent.shared.userLocalFiles['repo-dir']
 const git = BrowserGit({ gitDir: repo })
