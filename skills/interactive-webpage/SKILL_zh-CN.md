@@ -1,6 +1,6 @@
 ---
 name: interactive-webpage
-description: "当你需要创建网页和交互 artifacts，或者修改当前 UI 的时候使用。包含资源、指引和规范"
+description: "当你需要创建网页和交互 artifacts，或者修改当前 UI 的时候使用，包含资源、指引和规范"
 ---
 
 
@@ -25,6 +25,10 @@ the UI 提供了 interaction area 位于你最新的 response 下面
     - 异步交互时，用户交互产生的 console.log 可能无法再通过 tool message 返回给你
     - 请使用这个函数 `browserAgent.send({ text })` 来让你自己获得交互结果
         - browserAgent 变量只存在你 JS local scope 里面，代表你自己，`browserAgent.send` 即给自己发送 text 消息
+- 还有另一种交互叫并行交互
+    - 原理：你早早的搭建好了交互组件，然后继续自己的 agentic loop，用户可以并行的和你的组件交互，而不打扰你
+    - 此时的弹窗尽量不要遮挡主界面，用户的操作信息可以异步记录在 `browserAgent.local` 上
+    - 等你需要交互结果的时候，再去看看用户的操作记录和结果，并做相应的方案
 - 你可以把交付组件放入 interaction area，也可以选择更加醒目的全局弹窗，根据需求做出恰当选择即可
 - 如果需要记录的数据量很大，你可以记录在 `browserAgent.local` 这个 Object 里面，供后续筛选查找
     - 你的多轮 tool call 间，共享一个独属于你的 `browserAgent.local`
@@ -41,30 +45,25 @@ the UI 提供了 interaction area 位于你最新的 response 下面
 - 如果需求是完整的网页/独立的 App，可以在 Interaction Area append iframe 组件
 - iframe 组件上方放一排控制按钮（根据需求可选全屏/新窗口、关闭、下载 等等）
     - 控制按钮行保持低调，和 iframe 网页风格一致，方便融入背景
-
-全屏方案：
+```js
+// 全屏方案：
 iframe.requestFullscreen()
 
-新窗口方案
+// 新窗口方案
 openNewTabBtn.onclick = () => {
-  // 1. 把完整的 HTML 字符串变成一个 Blob
   const blob = new Blob([html], {type: 'text/html'});
-  // 2. 用 Blob 创建一个临时的 URL
   const url = URL.createObjectURL(blob);
-  // 3. 用 window.open 在这个 URL 上打开新标签页
   window.open(url, '_blank', 'noopener,noreferrer');
-  // 4. 十分钟后释放内存
-  setTimeout(() => URL.revokeObjectURL(url), 600000);
 };
-
+```
 
 ## 大型项目
 
-React / ReactDOM 用 CDN 的 UMD 版
+用 CDN 的 UMD 版 React / ReactDOM 来创建大型项目
 JSX 用 Babel Standalone 在浏览器里转成 JS
-把 React、ReactDOM、编译后的业务代码、CSS 全部内联进一个 HTML
+把 React、ReactDOM、编译后的业务代码、CSS 全部内联进一个 HTML，挂靠在 iframe 上
 
-可以用 OPFS (Origin Private File System) 路径在 'browserAgent/workspace' 下新建你的项目文件夹，再构建各类文件
+如果需要构建超多文件，可以用 OPFS (Origin Private File System) 路径在 'browserAgent/workspace' 下新建你的项目文件夹，再构建你的项目
 
 
 ## Tips
