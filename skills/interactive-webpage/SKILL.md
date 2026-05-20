@@ -64,7 +64,7 @@ Use the UMD versions of React and ReactDOM from a CDN to create large projects.
 Use Babel Standalone to transform JSX into JavaScript in the browser.
 Inline React, ReactDOM, compiled application code, and CSS into a single HTML file, then mount it in an iframe.
 
-If you need to build many files, create your project folder under the OPFS (Origin Private File System) path `browserAgent/workspace`, then build your project there.
+If you need to build many files, create your project folder under the OPFS (Origin Private File System) path `browser-agent/workspace`, then build your project there.
 
 ## Tips
 - If you need `console.log` feedback while creating something, ensure every `console.log` is awaited in the main function and runs before the main function ends; do not put it inside an un-awaited `.then()`

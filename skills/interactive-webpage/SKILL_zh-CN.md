@@ -65,7 +65,7 @@ openNewTabBtn.onclick = () => {
 JSX 用 Babel Standalone 在浏览器里转成 JavaScript。
 把 React、ReactDOM、编译后的业务代码和 CSS 全部内联进一个 HTML，再挂载到 iframe 上。
 
-如果需要构建大量文件，可以用 OPFS（Origin Private File System）路径在 `browserAgent/workspace` 下新建项目文件夹，再构建你的项目。
+如果需要构建大量文件，可以用 OPFS（Origin Private File System）路径在 `browser-agent/workspace` 下新建项目文件夹，再构建你的项目。
 
 
 ## 提示
