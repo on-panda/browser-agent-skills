@@ -69,6 +69,8 @@ If you need to build many files, create your project folder under the OPFS (Orig
 ## Tips
 - If you need `console.log` feedback while creating something, ensure every `console.log` is awaited in the main function and runs before the main function ends; do not put it inside an un-awaited `.then()`
 - If you are a multimodal model that can inspect images, you can convert an image to a Blob and use `console.log(Blob)` to get visual feedback
+    - Therefore, for image perception and processing tasks, you can inspect images yourself and use canvas to view the effect while processing, instead of introducing machine learning libraries or pushing the task back to the user
 - When creating a floating widget, provide a close control to avoid fully blocking the current UI
     - If the user needs to reopen it after closing, you can keep an open button inside the interaction area
-- When the user needs an interactive deliverable such as a webpage or standalone app, remind them at the end that you can package the deliverable and automatically download it to their computer
+- When the user needs an interactive deliverable such as a webpage or standalone app, remind them at the end that you can help package the deliverable and automatically download it to their computer
+- If your component needs drag-and-drop upload, note that the user's drag-and-drop action will also trigger the Agent UI's own drag-and-drop upload component

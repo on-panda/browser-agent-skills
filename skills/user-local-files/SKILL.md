@@ -75,3 +75,6 @@ If additional git features are needed, you can implement them by referring to `b
 
 Safari may not support viewing hidden `.git` directories.
 - If the user needs git-related functionality, explain the reason and recommend switching to desktop Chrome.
+
+## Tips
+- **Filename restrictions**: the browser File System Access API strictly validates filenames. The following characters are rejected on all platforms: `:` `?` `<` `>` `"` `|` `*`, as well as all ASCII control characters (`\n`, `\r`, `\t`, etc.). If you encounter a `Name is not allowed` error, this is intentional Chromium security behavior (WAI), not a bug.

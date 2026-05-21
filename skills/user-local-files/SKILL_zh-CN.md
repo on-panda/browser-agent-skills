@@ -77,3 +77,6 @@ await git.remote('-v')
 
 Safari 可能不支持查看隐藏的 `.git` 目录。
 - 如果用户有 Git 相关需求，告知用户原因并推荐用户切换桌面版 Chrome。
+
+## Tips
+- **文件名限制**：浏览器 File System Access API 对文件名有严格校验，以下字符在所有平台上均被拒绝：`:` `?` `<` `>` `"` `|` `*` 以及所有 ASCII 控制字符（`\n` `\r` `\t` 等）。遇到 `Name is not allowed` 错误时，这是 Chromium 的刻意安全设计（WAI），不是 bug。
