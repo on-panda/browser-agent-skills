@@ -6,9 +6,9 @@
 - `interactive-webpage`: Use when you need to create webpages or interactive artifacts, or modify the current UI. ([skillUrl](https://raw.githubusercontent.com/on-panda/browser-agent-skills/main/skills/interactive-webpage/SKILL.md))
 - `user-local-files`: Use when the user shares local files, indicated by `<|user_local_files` in the context. Includes local filesystem read/write guidelines and common tools. ([skillUrl](https://raw.githubusercontent.com/on-panda/browser-agent-skills/main/skills/user-local-files/SKILL.md))
 - `browser-screenshot`: Browser screenshot patterns, used when taking screenshots or streaming. ([skillUrl](https://raw.githubusercontent.com/on-panda/browser-agent-skills/main/skills/browser-screenshot/SKILL.md))
+- `onpanda-docs`: Use when the user asks about onPanda or asks you to manage API configuration. This skill contains information about onPanda, its source code, and related resources. ([skillUrl](https://raw.githubusercontent.com/on-panda/browser-agent-skills/main/skills/onpanda-docs/SKILL.md))
 
 ### TBD skills
 - [ ] browser-storage
-- [ ] on-panda-docs
 - [ ] memory-in-browser
 - [ ] multimedia-io
