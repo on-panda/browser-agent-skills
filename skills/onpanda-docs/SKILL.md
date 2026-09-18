@@ -20,6 +20,6 @@ description: "Use when the user asks about onPanda or asks you to manage API con
 
 Note:
 
-- When handling `api_key`, keep it in memory or `localStorage` whenever possible. Do not expose it in your context in plain text (for example, by printing it or reading it into a tool response).
+- When handling `api_key`, keep it in runtime RAM or `localStorage` whenever possible. Do not expose it in your context in plain text (for example, by printing it or reading it into a tool response).
   - Redact it properly. If it must be displayed, show only the beginning and end, for example: `"api_key": "ak-onP********Key"`.
 - Handle `config` and `api_key` with great care. If the instruction is unclear or you are uncertain about an action, ask the user for clear guidance.

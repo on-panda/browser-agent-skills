@@ -17,6 +17,6 @@ description: "当用户询问 onPanda 或要求你管理 API 配置时使用。�
   - localStorage.getItem('onPandaApiConfigsJson5') 存储
 
 注意：
-- 在处理 api_key 的时候，尽量让其保留在内存或者 localStorage 中，不要明文出现在你的 context 里面（避免 print 出来、或者读取到你的 tool response 里面）
+- 在处理 api_key 的时候，尽量让其保留在运行内存或者 localStorage 中，不要明文出现在你的 context 里面（避免 print 出来、或者读取到你的 tool response 里面）
   - 做好脱敏处理，要展示的话，只展示前后几位 `"api_key": "ak-onP********Key"`
 - 处理 config 和 api_key 的时候一定要小心翼翼，三思而行。指令不清晰，或者对自己的行为不确定的情况，请询问用户获得清晰的指引。
