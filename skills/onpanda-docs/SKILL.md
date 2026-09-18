@@ -18,8 +18,10 @@ description: "Use when the user asks about onPanda or asks you to manage API con
 - Source code for API control parameters: https://github.com/on-panda/on-panda/blob/main/src/stores/controlParameterState.js
   - Stored in `localStorage` under `onPandaApiConfigsJson5`; access it with `localStorage.getItem('onPandaApiConfigsJson5')`.
 
-Note:
+Important:
 
-- When handling `api_key`, keep it in runtime RAM or `localStorage` whenever possible. Do not expose it in your context in plain text (for example, by printing it or reading it into a tool response).
-  - Redact it properly. If it must be displayed, show only the beginning and end, for example: `"api_key": "ak-onP********Key"`.
-- Handle `config` and `api_key` with great care. If the instruction is unclear or you are uncertain about an action, ask the user for clear guidance.
+- Before performing any API management operation, read `editLocalStorageApiConfigsInstructions`.
+- When handling `api_key`, keep it in runtime memory or `localStorage` whenever possible. Do not expose it as plain text in your context (for example, by printing it or including it in a tool response).
+  - Redact it properly. If it must be displayed, show only its beginning and end, for example: `"api_key": "ak-onP********Key"`.
+- Handle configuration with great care. Before writing, read the existing configuration to avoid overwriting it. If the instruction is unclear or you are unsure about an action, ask the user for clear guidance.
+- After modifying the API configuration, always tell the user to click the “Refresh model list” button in the Control Parameters section or refresh the webpage so the new configuration takes effect.

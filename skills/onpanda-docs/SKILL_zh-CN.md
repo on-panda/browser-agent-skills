@@ -11,12 +11,16 @@ description: "当用户询问 onPanda 或要求你管理 API 配置时使用。�
 - 不适合放在 README.md 的开发文档: https://github.com/on-panda/on-panda-docs/blob/main/content/en/README.md
 
 ## API 管理
+
 - i18n 里面有面向用户讲解如何配置 API 的说明，其 key 是 `editLocalStorageApiConfigsInstructions`
   - https://github.com/on-panda/on-panda/blob/main/src/i18n/locales/en-US.js
 - API 控制参数源代码: https://github.com/on-panda/on-panda/blob/main/src/stores/controlParameterState.js
-  - localStorage.getItem('onPandaApiConfigsJson5') 存储
+  - 配置存储在 localStorage.getItem('onPandaApiConfigsJson5')
 
 注意：
-- 在处理 api_key 的时候，尽量让其保留在运行内存或者 localStorage 中，不要明文出现在你的 context 里面（避免 print 出来、或者读取到你的 tool response 里面）
-  - 做好脱敏处理，要展示的话，只展示前后几位 `"api_key": "ak-onP********Key"`
-- 处理 config 和 api_key 的时候一定要小心翼翼，三思而行。指令不清晰，或者对自己的行为不确定的情况，请询问用户获得清晰的指引。
+
+- 在执行任何 API 管理操作前，必须先阅读 `editLocalStorageApiConfigsInstructions`。
+- 处理 `api_key` 时，尽量将其保留在运行时内存或 `localStorage` 中。不要让它以明文出现在你的上下文里（例如打印出来，或读入工具响应）。
+  - 做好脱敏处理。如必须展示，只显示开头和结尾，例如：`"api_key": "ak-onP********Key"`。
+- 处理配置时务必谨慎。写入前先读取现有配置，避免覆盖原有配置。如果指令不清晰或你不确定某个操作，请向用户询问明确指引。
+- 每次修改 API 配置后，都要告知用户点击控制参数中的“刷新模型列表”按钮，或刷新网页，以使新配置生效。
